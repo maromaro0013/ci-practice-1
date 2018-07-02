@@ -1,0 +1,61 @@
+version: 2
+jobs:
+  build:
+    parallelism: 1
+    working_directory: ~/ci-practice
+    docker:
+      - image: circleci/ruby:2.5.1
+        environment:
+          BUNDLE_JOBS: 3
+          BUNDLE_RETRY: 3
+          BUNDLE_PATH: vendor/bundle
+          RAILS_ENV: circleci
+      - image: mysql:8.0.11
+        environment:
+          MYSQL_ALLOW_EMPTY_PASSWORD: yes
+          MYSQL_ROOT_PASSWORD: ''
+          MYSQL_DATABASE: ci-practice_test
+        command:
+          mysqld --default_authentication_plugin=mysql_native_password
+    steps:
+      - checkout
+
+      - run:
+          name: Which bundler?
+          command: bundle -v
+
+      - restore_cache:
+          keys:
+             - ci-practice-bundle-v2-{{ checksum "Gemfile.lock" }}
+             - ci-practice-bundle-v2-
+
+      - run:
+          name: Bundle Install
+          command: bundle check || bundle install
+
+      - save_cache:
+          key: ci-practice-bundle-v2-{{ checksum "Gemfile.lock" }}
+          paths:
+            - vendor/bundle
+
+      - run:
+          name: Wait for DB
+          command: dockerize -wait tcp://localhost:3306 -timeout 1m
+
+      - run:
+          name: Database setup
+          command: bin/rails db:schema:load --trace
+
+      - run:
+          name: Run rubocop
+          command: bundle exec rubocop
+
+      - run:
+          name: Run rspec in parallel
+          command: |
+            bundle exec rspec --profile 10 \
+            --format progress \
+            $(circleci tests glob "spec/**/*_spec.rb" | circleci tests split --split-by=timings)
+
+      - store_test_results:
+          path: test_results
