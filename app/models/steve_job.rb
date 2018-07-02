@@ -1,0 +1,2 @@
+class SteveJob < ApplicationRecord
+end
